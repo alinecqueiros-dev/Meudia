@@ -121,30 +121,40 @@
   }
 
   window.addEventListener('DOMContentLoaded', function() {
+    // Generate only small icons synchronously, defer 512px
     const icon180 = makeIcon(180);
     const icon192 = makeIcon(192);
 
     document.getElementById('apple-touch-icon').href = icon180;
     document.getElementById('favicon').href = icon192;
 
-    // Inline PWA manifest
-    const manifest = {
-      name: 'MeuDia — Rotina Organizada',
-      short_name: 'MeuDia',
-      description: 'Organize sua rotina diária com notificações',
-      start_url: 'https://alinecqueiros-dev.github.io/Meudia/',
-      scope: 'https://alinecqueiros-dev.github.io/Meudia/',
-      display: 'standalone',
-      background_color: '#0e0f14',
-      theme_color: '#0e0f14',
-      orientation: 'portrait',
-      icons: [
-        { src: icon192, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-        { src: makeIcon(512), sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
-      ]
-    };
-    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
-    document.getElementById('manifest-link').href = URL.createObjectURL(blob);
+    // Inline PWA manifest — defer 512px icon to idle time
+    function buildManifest(icon512) {
+      const manifest = {
+        name: 'MeuDia — Rotina Organizada',
+        short_name: 'MeuDia',
+        description: 'Organize sua rotina diária com notificações',
+        start_url: 'https://alinecqueiros-dev.github.io/Meudia/',
+        scope: 'https://alinecqueiros-dev.github.io/Meudia/',
+        display: 'standalone',
+        background_color: '#0e0f14',
+        theme_color: '#0e0f14',
+        orientation: 'portrait',
+        icons: [
+          { src: icon192, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+          { src: icon512, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+        ]
+      };
+      const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+      document.getElementById('manifest-link').href = URL.createObjectURL(blob);
+    }
+
+    // Use requestIdleCallback to avoid blocking main thread on mobile
+    if (window.requestIdleCallback) {
+      requestIdleCallback(() => buildManifest(makeIcon(512)), { timeout: 3000 });
+    } else {
+      setTimeout(() => buildManifest(makeIcon(512)), 1500);
+    }
   });
 })();
 </script>
@@ -578,6 +588,24 @@
   .nav-icon { font-size: 20px; }
   .nav-label { font-size: 10px; font-family: 'Syne', sans-serif; font-weight: 700; letter-spacing: .3px; }
 
+  /* ---- RECURRENCE ---- */
+  .wd-btn {
+    display: flex; align-items: center; gap: 5px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; cursor: pointer;
+    font-size: 12px; font-family: 'Syne', sans-serif; font-weight: 700;
+    transition: all .15s; user-select: none;
+  }
+  .wd-btn input { display: none; }
+  .wd-btn:has(input:checked) {
+    background: var(--accent-dim); border-color: var(--accent); color: var(--accent);
+  }
+  .recur-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: var(--accent-dim); color: var(--accent);
+    border-radius: 20px; padding: 2px 7px; font-size: 10px; font-weight: 600;
+  }
+
   /* ---- GCAL STYLES ---- */
   .gcal-status-bar {
     background: var(--surface);
@@ -885,6 +913,54 @@
         <input class="form-input" type="time" id="task-time" style="flex:0 0 110px"/>
       </div>
       <div class="form-row">
+        <select class="form-select" id="task-repeat" style="width:100%" onchange="onRepeatChange()">
+          <option value="once">🔂 Uma vez (hoje)</option>
+          <option value="daily" selected>📅 Todo dia</option>
+          <option value="weekdays">💼 Dias úteis (Seg–Sex)</option>
+          <option value="weekends">🏖️ Fins de semana</option>
+          <option value="weekly">📆 Semanal</option>
+          <option value="biweekly">🗓️ Quinzenal</option>
+          <option value="monthly">📅 Mensal</option>
+          <option value="custom">⚙️ Dias específicos</option>
+        </select>
+      </div>
+      <!-- Weekday picker — shown only for "custom" -->
+      <div id="weekday-picker" style="display:none;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Selecione os dias:</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <label class="wd-btn"><input type="checkbox" value="1"> Seg</label>
+          <label class="wd-btn"><input type="checkbox" value="2"> Ter</label>
+          <label class="wd-btn"><input type="checkbox" value="3"> Qua</label>
+          <label class="wd-btn"><input type="checkbox" value="4"> Qui</label>
+          <label class="wd-btn"><input type="checkbox" value="5"> Sex</label>
+          <label class="wd-btn"><input type="checkbox" value="6"> Sáb</label>
+          <label class="wd-btn"><input type="checkbox" value="0"> Dom</label>
+        </div>
+      </div>
+      <!-- Weekly: pick which day of week -->
+      <div id="weekly-picker" style="display:none;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Qual dia da semana?</div>
+        <select class="form-select" id="weekly-day" style="width:100%">
+          <option value="1">Segunda-feira</option>
+          <option value="2">Terça-feira</option>
+          <option value="3">Quarta-feira</option>
+          <option value="4">Quinta-feira</option>
+          <option value="5">Sexta-feira</option>
+          <option value="6">Sábado</option>
+          <option value="0">Domingo</option>
+        </select>
+      </div>
+      <!-- Biweekly: pick start date -->
+      <div id="biweekly-picker" style="display:none;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Data de início:</div>
+        <input class="form-input" type="date" id="biweekly-start" />
+      </div>
+      <!-- Monthly: pick day of month -->
+      <div id="monthly-picker" style="display:none;margin-bottom:10px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Dia do mês:</div>
+        <input class="form-input" type="number" id="monthly-day" min="1" max="31" placeholder="Ex: 15" style="width:100px"/>
+      </div>
+      <div class="form-row">
         <input class="form-input" id="task-note" placeholder="Observações (opcional)..." />
       </div>
       <button class="add-btn" onclick="addTask()">+ Adicionar Tarefa</button>
@@ -945,10 +1021,10 @@ const CAT_ICONS  = { work:'💼', health:'💪', home:'🏠', food:'🍽️' };
 // ============ INIT ============
 function init() {
   setHeaderDate();
+  purgeStaleData();
   renderAll();
   scheduleAlarmChecks();
   requestNotifPermission();
-  // Seed default tasks if empty
   if (tasks.length === 0) seedDefaults();
 }
 
@@ -960,16 +1036,16 @@ function setHeaderDate() {
 
 function seedDefaults() {
   const defaults = [
-    { id: uid(), title: 'Acordar e se alongar', cat: 'health', time: '07:00', note: '10 min de alongamento', done: false },
-    { id: uid(), title: 'Café da manhã', cat: 'food', time: '07:30', note: 'Comer bem para o dia', done: false },
-    { id: uid(), title: 'Verificar e-mails', cat: 'work', time: '09:00', note: '', done: false },
-    { id: uid(), title: 'Reunião de planejamento', cat: 'work', time: '10:00', note: 'Stand-up diário', done: false },
-    { id: uid(), title: 'Almoço saudável', cat: 'food', time: '12:30', note: 'Incluir legumes e proteínas', done: false },
-    { id: uid(), title: 'Treino / Exercício', cat: 'health', time: '18:00', note: '45 min de atividade física', done: false },
-    { id: uid(), title: 'Jantar', cat: 'food', time: '19:30', note: '', done: false },
-    { id: uid(), title: 'Limpeza da cozinha', cat: 'home', time: '20:15', note: '', done: false },
-    { id: uid(), title: 'Leitura / Estudo noturno', cat: 'work', time: '21:00', note: '30 min de aprendizado', done: false },
-    { id: uid(), title: 'Preparar roupas do dia seguinte', cat: 'home', time: '22:00', note: '', done: false },
+    { id: uid(), title: 'Acordar e se alongar',          cat: 'health', time: '07:00', note: '10 min de alongamento',        done: false, repeat: 'daily' },
+    { id: uid(), title: 'Café da manhã',                 cat: 'food',   time: '07:30', note: 'Comer bem para o dia',          done: false, repeat: 'daily' },
+    { id: uid(), title: 'Verificar e-mails',             cat: 'work',   time: '09:00', note: '',                              done: false, repeat: 'weekdays' },
+    { id: uid(), title: 'Reunião de planejamento',       cat: 'work',   time: '10:00', note: 'Stand-up diário',               done: false, repeat: 'weekdays' },
+    { id: uid(), title: 'Almoço saudável',               cat: 'food',   time: '12:30', note: 'Incluir legumes e proteínas',   done: false, repeat: 'daily' },
+    { id: uid(), title: 'Treino / Exercício',            cat: 'health', time: '18:00', note: '45 min de atividade física',    done: false, repeat: 'daily' },
+    { id: uid(), title: 'Jantar',                        cat: 'food',   time: '19:30', note: '',                              done: false, repeat: 'daily' },
+    { id: uid(), title: 'Limpeza da cozinha',            cat: 'home',   time: '20:15', note: '',                              done: false, repeat: 'daily' },
+    { id: uid(), title: 'Leitura / Estudo noturno',      cat: 'work',   time: '21:00', note: '30 min de aprendizado',         done: false, repeat: 'daily' },
+    { id: uid(), title: 'Preparar roupas do dia seguinte', cat: 'home', time: '22:00', note: '',                              done: false, repeat: 'daily' },
   ];
   const defaultAlarms = [
     { id: uid(), time: '07:00', label: 'Bom dia! Hora de acordar', repeat: 'daily', on: true },
@@ -991,24 +1067,129 @@ function save() {
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 
+// Returns today's date string YYYY-MM-DD
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Run once on init: purge stale once-tasks and once-alarms from previous days,
+// and auto-reset recurring tasks so they appear fresh each day
+function purgeStaleData() {
+  const today = todayStr();
+  const lastRun = localStorage.getItem('meudia_last_run') || '';
+
+  // Remove "once" tasks whose date has passed
+  tasks = tasks.filter(t => {
+    if (t.repeat === 'once') return (t.date || today) >= today;
+    return true; // keep all recurring
+  });
+
+  // Remove "once" alarms whose date has passed
+  alarms = alarms.filter(a => {
+    if (a.repeat !== 'once') return true;
+    return (a.date || today) >= today;
+  });
+
+  // New day → reset done on all recurring tasks and clear fired-alarm memory
+  if (lastRun && lastRun < today) {
+    tasks.forEach(t => {
+      if (t.repeat !== 'once') t.done = false;
+    });
+    notifTimers = {};
+  }
+
+  localStorage.setItem('meudia_last_run', today);
+  save();
+}
+
+// ============ RECURRENCE HELPERS ============
+const RECUR_LABELS = {
+  once:     '🔂 Uma vez',
+  daily:    '📅 Todo dia',
+  weekdays: '💼 Dias úteis',
+  weekends: '🏖️ Fins de semana',
+  weekly:   '📆 Semanal',
+  biweekly: '🗓️ Quinzenal',
+  monthly:  '📅 Mensal',
+  custom:   '⚙️ Personalizado',
+};
+
+// Returns true if a task with its recurrence rule is due today
+function isTaskDueToday(t) {
+  const today = todayStr();
+  const now   = new Date();
+  const dow   = now.getDay(); // 0=Sun … 6=Sat
+
+  switch (t.repeat) {
+    case 'once':
+      return t.date === today;
+    case 'daily':
+      return true;
+    case 'weekdays':
+      return dow >= 1 && dow <= 5;
+    case 'weekends':
+      return dow === 0 || dow === 6;
+    case 'weekly':
+      return String(dow) === String(t.weekDay);
+    case 'biweekly': {
+      if (!t.startDate) return false;
+      const start = new Date(t.startDate);
+      const diff  = Math.round((now - start) / (1000 * 60 * 60 * 24));
+      return diff >= 0 && diff % 14 === 0;
+    }
+    case 'monthly':
+      return now.getDate() === Number(t.monthDay);
+    case 'custom':
+      return (t.customDays || []).map(String).includes(String(dow));
+    default:
+      return true;
+  }
+}
+
+function onRepeatChange() {
+  const val = document.getElementById('task-repeat').value;
+  document.getElementById('weekday-picker').style.display  = val === 'custom'   ? 'block' : 'none';
+  document.getElementById('weekly-picker').style.display   = val === 'weekly'   ? 'block' : 'none';
+  document.getElementById('biweekly-picker').style.display = val === 'biweekly' ? 'block' : 'none';
+  document.getElementById('monthly-picker').style.display  = val === 'monthly'  ? 'block' : 'none';
+  // Default biweekly start to today
+  if (val === 'biweekly' && !document.getElementById('biweekly-start').value) {
+    document.getElementById('biweekly-start').value = todayStr();
+  }
+}
+
 // ============ TASKS ============
 function addTask() {
-  const title = document.getElementById('task-title').value.trim();
-  const cat   = document.getElementById('task-cat').value;
-  const time  = document.getElementById('task-time').value;
-  const note  = document.getElementById('task-note').value.trim();
+  const title  = document.getElementById('task-title').value.trim();
+  const cat    = document.getElementById('task-cat').value;
+  const time   = document.getElementById('task-time').value;
+  const note   = document.getElementById('task-note').value.trim();
+  const repeat = document.getElementById('task-repeat').value;
   if (!title) { showToast('⚠️', 'Campo vazio', 'Digite o nome da tarefa.'); return; }
-  const task = { id: uid(), title, cat, time, note, done: false };
+
+  const task = { id: uid(), title, cat, time, note, done: false, repeat };
+
+  if (repeat === 'once')     task.date      = todayStr();
+  if (repeat === 'weekly')   task.weekDay   = document.getElementById('weekly-day').value;
+  if (repeat === 'biweekly') task.startDate = document.getElementById('biweekly-start').value || todayStr();
+  if (repeat === 'monthly')  task.monthDay  = parseInt(document.getElementById('monthly-day').value) || new Date().getDate();
+  if (repeat === 'custom') {
+    task.customDays = [...document.querySelectorAll('#weekday-picker input:checked')].map(el => el.value);
+    if (!task.customDays.length) { showToast('⚠️', 'Selecione ao menos um dia', ''); return; }
+  }
+
   tasks.push(task);
   save();
   renderAll();
   document.getElementById('task-title').value = '';
-  document.getElementById('task-note').value = '';
-  document.getElementById('task-time').value = '';
-  showToast(CAT_ICONS[cat], 'Tarefa adicionada', title);
-  // Auto-create alarm if time given
-  if (time) {
-    alarms.push({ id: uid(), time, label: title, repeat: 'once', on: true });
+  document.getElementById('task-note').value  = '';
+  document.getElementById('task-time').value  = '';
+  showToast(CAT_ICONS[cat], 'Tarefa adicionada', `${title} · ${RECUR_LABELS[repeat]}`);
+
+  // Auto-create alarm for today only
+  if (time && isTaskDueToday(task)) {
+    alarms.push({ id: uid(), time, label: title, repeat: repeat === 'once' ? 'once' : 'daily', date: todayStr(), on: true });
     save();
     renderAlarms();
   }
@@ -1084,9 +1265,10 @@ function renderStats() {
 
 function renderTimeline() {
   const container = document.getElementById('timeline');
-  const sorted = [...tasks].sort((a,b) => (a.time||'99:99').localeCompare(b.time||'99:99'));
+  const todayTasks = tasks.filter(isTaskDueToday);
+  const sorted = [...todayTasks].sort((a,b) => (a.time||'99:99').localeCompare(b.time||'99:99'));
   if (sorted.length === 0) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><div class="empty-text">Nenhuma tarefa ainda.<br>Adicione na aba Tarefas!</div></div>`;
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><div class="empty-text">Nenhuma tarefa para hoje.<br>Adicione na aba Tarefas!</div></div>`;
     return;
   }
   container.innerHTML = sorted.map(t => `
@@ -1100,6 +1282,7 @@ function renderTimeline() {
             <div class="task-title">${t.title}</div>
             <div class="task-meta">
               <span class="cat-badge ${t.cat}">${CAT_ICONS[t.cat]} ${CAT_LABELS[t.cat]}</span>
+              ${t.repeat && t.repeat !== 'once' ? `<span class="recur-badge">🔁 ${RECUR_LABELS[t.repeat]}</span>` : ''}
               ${t.note ? `<span>${t.note}</span>` : ''}
             </div>
           </div>
@@ -1116,7 +1299,12 @@ function renderTaskList() {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">Nenhuma tarefa cadastrada.</div></div>`;
     return;
   }
-  container.innerHTML = tasks.map(t => `
+  // Group: today's tasks first, then others
+  const today = tasks.filter(isTaskDueToday);
+  const other  = tasks.filter(t => !isTaskDueToday(t));
+
+  function taskHTML(t) {
+    return `
     <div class="task-card cat-${t.cat} ${t.done ? 'done' : ''}">
       <div class="task-row">
         <div class="task-check" onclick="toggleTask('${t.id}')" style="cursor:pointer">${t.done ? '✓' : ''}</div>
@@ -1125,13 +1313,25 @@ function renderTaskList() {
           <div class="task-meta">
             <span class="cat-badge ${t.cat}">${CAT_ICONS[t.cat]} ${CAT_LABELS[t.cat]}</span>
             ${t.time ? `<span>🕐 ${t.time}</span>` : ''}
+            <span class="recur-badge">🔁 ${RECUR_LABELS[t.repeat] || 'Todo dia'}</span>
             ${t.note ? `<span>${t.note}</span>` : ''}
           </div>
         </div>
         <button class="alarm-delete" onclick="deleteTask('${t.id}')">🗑️</button>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }
+
+  let html = '';
+  if (today.length) {
+    html += `<div class="section-title" style="margin-top:0">Hoje</div>`;
+    html += today.map(taskHTML).join('');
+  }
+  if (other.length) {
+    html += `<div class="section-title" style="margin-top:12px">Outros dias</div>`;
+    html += other.map(taskHTML).join('');
+  }
+  container.innerHTML = html;
 }
 
 function renderAlarms() {
@@ -1156,6 +1356,17 @@ function renderAlarms() {
 }
 
 // ============ NOTIFICATIONS ============
+let _audioCtx = null;
+function getAudioCtx() {
+  try {
+    if (!_audioCtx || _audioCtx.state === 'closed') {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // Resume if suspended (required on iOS after user gesture)
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+    return _audioCtx;
+  } catch(e) { return null; }
+}
 function requestNotifPermission() {
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
@@ -1188,7 +1399,8 @@ function dismissToast(el) {
 
 function playBeep() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
@@ -1205,7 +1417,8 @@ function playBeep() {
 
 function playAlarmSound() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx();
+    if (!ctx) return;
     [0, 0.3, 0.6].forEach(offset => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -1226,51 +1439,59 @@ function testNotification() {
 }
 
 function scheduleAlarmChecks() {
+  let lastAlarmCheck = '';
+  let lastTaskCheck = '';
+
+  // Check every 60s instead of 10s — more than enough for minute-precision alarms
   setInterval(() => {
+    // Skip if tab is hidden (saves battery on mobile)
+    if (document.hidden) return;
+
     const now = new Date();
     const hh = String(now.getHours()).padStart(2,'0');
     const mm = String(now.getMinutes()).padStart(2,'0');
     const nowStr = `${hh}:${mm}`;
-    const day = now.getDay(); // 0=Sun, 6=Sat
-    alarms.forEach(a => {
-      if (!a.on) return;
-      if (a.time !== nowStr) return;
-      const key = a.id + nowStr;
-      if (notifTimers[key]) return;
-      notifTimers[key] = true;
-      const shouldFire =
-        a.repeat === 'daily' ||
-        a.repeat === 'once' ||
-        (a.repeat === 'weekdays' && day >= 1 && day <= 5) ||
-        (a.repeat === 'weekends' && (day === 0 || day === 6));
-      if (shouldFire) {
-        playAlarmSound();
-        showToast('⏰', `Alarme: ${a.time}`, a.label, 8000);
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification(`⏰ ${a.time} — MeuDia`, { body: a.label, icon: '' });
-        }
-      }
-      // Clean up key after 70s to allow re-fire next day
-      setTimeout(() => delete notifTimers[key], 70000);
-    });
-  }, 10000);
 
-  // Also check for upcoming tasks in next 5 min
-  setInterval(() => {
-    const now = new Date();
+    // Alarm check
+    if (nowStr !== lastAlarmCheck) {
+      lastAlarmCheck = nowStr;
+      const day = now.getDay();
+      alarms.forEach(a => {
+        if (!a.on || a.time !== nowStr) return;
+        const key = a.id + nowStr;
+        if (notifTimers[key]) return;
+        notifTimers[key] = true;
+        const shouldFire =
+          a.repeat === 'daily' || a.repeat === 'once' ||
+          (a.repeat === 'weekdays' && day >= 1 && day <= 5) ||
+          (a.repeat === 'weekends' && (day === 0 || day === 6));
+        if (shouldFire) {
+          playAlarmSound();
+          showToast('⏰', `Alarme: ${a.time}`, a.label, 8000);
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`⏰ ${a.time} — MeuDia`, { body: a.label });
+          }
+        }
+        setTimeout(() => delete notifTimers[key], 70000);
+      });
+    }
+
+    // Task reminder check (5 min ahead) — deduplicated per minute
     const future = new Date(now.getTime() + 5 * 60000);
     const fh = String(future.getHours()).padStart(2,'0');
     const fm = String(future.getMinutes()).padStart(2,'0');
     const futureStr = `${fh}:${fm}`;
-    tasks.forEach(t => {
-      if (t.done || !t.time) return;
-      if (t.time !== futureStr) return;
-      const key = 'task_' + t.id + futureStr;
-      if (notifTimers[key]) return;
-      notifTimers[key] = true;
-      showToast(CAT_ICONS[t.cat], `Em 5 min: ${t.time}`, t.title, 7000);
-    });
-  }, 30000);
+    if (futureStr !== lastTaskCheck) {
+      lastTaskCheck = futureStr;
+      tasks.forEach(t => {
+        if (t.done || !t.time || t.time !== futureStr) return;
+        const key = 'task_' + t.id + futureStr;
+        if (notifTimers[key]) return;
+        notifTimers[key] = true;
+        showToast(CAT_ICONS[t.cat], `Em 5 min: ${t.time}`, t.title, 7000);
+      });
+    }
+  }, 60000); // 60 seconds — safe for mobile
 }
 
 // ============ DAILY SUMMARY ============
